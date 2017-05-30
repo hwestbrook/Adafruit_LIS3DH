@@ -17,13 +17,17 @@
 */
 /**************************************************************************/
 
-#if ARDUINO >= 100
- #include "Arduino.h"
+#ifdef PARTICLE
+ #include "Particle.h"
 #else
- #include "WProgram.h"
-#endif
+  #if ARDUINO >= 100
+   #include "Arduino.h"
+  #else
+   #include "WProgram.h"
+  #endif
 
-#include <Wire.h>
+  #include <Wire.h>
+#endif
 #include <Adafruit_LIS3DH.h>
 
 
@@ -36,13 +40,6 @@
 Adafruit_LIS3DH::Adafruit_LIS3DH()
   : _cs(-1), _mosi(-1), _miso(-1), _sck(-1), _sensorID(-1)
 {
-  I2Cinterface = &Wire;
-}
-
-Adafruit_LIS3DH::Adafruit_LIS3DH(TwoWire *Wi)
-  : _cs(-1), _mosi(-1), _miso(-1), _sck(-1), _sensorID(-1)
-{
-  I2Cinterface = Wi;
 }
 
 Adafruit_LIS3DH::Adafruit_LIS3DH(int8_t cspin)
@@ -66,7 +63,7 @@ bool Adafruit_LIS3DH::begin(uint8_t i2caddr) {
 
   if (_cs == -1) {
     // i2c
-    I2Cinterface->begin();
+    Wire.begin();
   } else {
     digitalWrite(_cs, HIGH);
     pinMode(_cs, OUTPUT);
@@ -85,8 +82,6 @@ bool Adafruit_LIS3DH::begin(uint8_t i2caddr) {
   }
 
   /*
-  Serial.println("Debug");
-  
   for (uint8_t i=0; i<0x30; i++) {
     Serial.print("$");
     Serial.print(i, HEX); Serial.print(" = 0x");
@@ -137,19 +132,20 @@ void Adafruit_LIS3DH::read(void) {
 
   if (_cs == -1) {
     // i2c
-    I2Cinterface->beginTransmission(_i2caddr);
-    I2Cinterface->write(LIS3DH_REG_OUT_X_L | 0x80); // 0x80 for autoincrement
-    I2Cinterface->endTransmission();
+    Wire.beginTransmission(_i2caddr);
+    Wire.write(LIS3DH_REG_OUT_X_L | 0x80); // 0x80 for autoincrement
+    Wire.endTransmission();
 
-    I2Cinterface->requestFrom(_i2caddr, 6);
-    x = I2Cinterface->read(); x |= ((uint16_t)I2Cinterface->read()) << 8;
-    y = I2Cinterface->read(); y |= ((uint16_t)I2Cinterface->read()) << 8;
-    z = I2Cinterface->read(); z |= ((uint16_t)I2Cinterface->read()) << 8;
-  } 
+    Wire.requestFrom(_i2caddr, 6);
+    x = Wire.read(); x |= ((uint16_t)Wire.read()) << 8;
+    y = Wire.read(); y |= ((uint16_t)Wire.read()) << 8;
+    z = Wire.read(); z |= ((uint16_t)Wire.read()) << 8;
+  }
   #ifndef __AVR_ATtiny85__
   else {
     if (_sck == -1)
-      SPI.beginTransaction(SPISettings(500000, MSBFIRST, SPI_MODE0));
+      beginTransaction();
+
     digitalWrite(_cs, LOW);
     spixfer(LIS3DH_REG_OUT_X_L | 0x80 | 0x40); // read multiple, bit 7&6 high
 
@@ -159,13 +155,13 @@ void Adafruit_LIS3DH::read(void) {
 
     digitalWrite(_cs, HIGH);
     if (_sck == -1)
-      SPI.endTransaction();              // release the SPI bus
+      endTransaction();
 
   }
   #endif
   uint8_t range = getRange();
   uint16_t divider = 1;
-  if (range == LIS3DH_RANGE_16_G) divider = 1365; // different sensitivity at 16g
+  if (range == LIS3DH_RANGE_16_G) divider = 2048;
   if (range == LIS3DH_RANGE_8_G) divider = 4096;
   if (range == LIS3DH_RANGE_4_G) divider = 8190;
   if (range == LIS3DH_RANGE_2_G) divider = 16380;
@@ -182,7 +178,7 @@ void Adafruit_LIS3DH::read(void) {
 */
 /**************************************************************************/
 
-int16_t Adafruit_LIS3DH::readADC(uint8_t adc) {
+uint16_t Adafruit_LIS3DH::readADC(uint8_t adc) {
   if ((adc < 1) || (adc > 3)) return 0;
   uint16_t value;
 
@@ -192,24 +188,25 @@ int16_t Adafruit_LIS3DH::readADC(uint8_t adc) {
 
   if (_cs == -1) {
     // i2c
-    I2Cinterface->beginTransmission(_i2caddr);
-    I2Cinterface->write(reg | 0x80);   // 0x80 for autoincrement
-    I2Cinterface->endTransmission();
-    I2Cinterface->requestFrom(_i2caddr, 2);
-    value = I2Cinterface->read();  value |= ((uint16_t)I2Cinterface->read()) << 8;
-  } 
+    Wire.beginTransmission(_i2caddr);
+    Wire.write(reg | 0x80);   // 0x80 for autoincrement
+    Wire.endTransmission();
+    Wire.requestFrom(_i2caddr, 2);
+    value = Wire.read();  value |= ((uint16_t)Wire.read()) << 8;
+  }
   #ifndef __AVR_ATtiny85__
   else {
-    if (_sck == -1)
-      SPI.beginTransaction(SPISettings(500000, MSBFIRST, SPI_MODE0));
-    digitalWrite(_cs, LOW);
+  if (_sck == -1)
+    beginTransaction();
+
+  digitalWrite(_cs, LOW);
     spixfer(reg | 0x80 | 0x40); // read multiple, bit 7&6 high
 
     value = spixfer(); value |= ((uint16_t)spixfer()) << 8;
 
     digitalWrite(_cs, HIGH);
     if (_sck == -1)
-      SPI.endTransaction();              // release the SPI bus
+      endTransaction();
   }
   #endif
 
@@ -317,9 +314,9 @@ bool Adafruit_LIS3DH::getEvent(sensors_event_t *event) {
 
   read();
 
-  event->acceleration.x = x_g * SENSORS_GRAVITY_STANDARD;
-  event->acceleration.y = y_g * SENSORS_GRAVITY_STANDARD;
-  event->acceleration.z = z_g * SENSORS_GRAVITY_STANDARD;
+  event->acceleration.x = x_g;
+  event->acceleration.y = y_g;
+  event->acceleration.z = z_g;
 }
 
 /**************************************************************************/
@@ -341,6 +338,91 @@ void Adafruit_LIS3DH::getSensor(sensor_t *sensor) {
   sensor->max_value   = 0;
   sensor->min_value   = 0;
   sensor->resolution  = 0;
+}
+
+/**************************************************************************/
+/*!
+    @brief  Enable wake-on-move mode
+
+    The movementThreshold value default is 16. Lower values are more sensitive.
+*/
+/**************************************************************************/
+
+bool Adafruit_LIS3DH::setupLowPowerWakeMode(uint8_t movementThreshold) {
+
+  // Enable 10 Hz, low power, with XYZ detection enabled
+  writeRegister8(LIS3DH_REG_CTRL1, LIS3DH_CTRL_REG1_ODR1 | LIS3DH_CTRL_REG1_LPEN | LIS3DH_CTRL_REG1_ZEN | LIS3DH_CTRL_REG1_YEN | LIS3DH_CTRL_REG1_XEN);
+
+  // High pass filters disabled
+  // Enable reference mode LIS3DH_CTRL_REG2_HPM0 | LIS3DH_CTRL_REG2_HPIS1
+  // Tried enabling CTRL_REG2_HPM0 | CTRL_REG2_HPM1 for auto-reset, did not seem to help
+  writeRegister8(LIS3DH_REG_CTRL2, 0);
+
+  // Enable INT1
+  writeRegister8(LIS3DH_REG_CTRL3, LIS3DH_CTRL_REG3_I1_INT1);
+
+  // Disable high resolution mode
+  writeRegister8(LIS3DH_REG_CTRL4, 0);
+
+  // Page 12 of the app note says to do this last, but page 25 says to do them in order.
+  // Disable FIFO, enable latch interrupt on INT1_SRC
+  writeRegister8(LIS3DH_REG_CTRL5, LIS3DH_CTRL_REG5_LIR_INT1);
+
+  // CTRL_REG6_H_LACTIVE means active low, not needed here
+  writeRegister8(LIS3DH_REG_CTRL6, 0);
+
+  // In normal mode, reading the reference register sets it for the current normal force
+  // (the normal force of gravity acting on the device)
+  readRegister8(LIS3DH_REG_REFERENCE);
+
+  // 250 mg threshold = 16
+  writeRegister8(LIS3DH_REG_INT1THS, movementThreshold);
+
+  //
+  writeRegister8(LIS3DH_REG_INT1DUR, 0);
+
+
+  if (intPin >= 0) {
+    // There are instructions to set the INT1_CFG in a loop in the appnote on page 24. As far
+    // as I can tell this never works. Merely setting the INT1_CFG does not ever generate an
+    // interrupt for me.
+
+    // Remember the INT1_CFG setting because we're apparently supposed to set it again after
+    // clearing an interrupt.
+    int1_cfg = LIS3DH_INT1_CFG_YHIE_YUPE | LIS3DH_INT1_CFG_XHIE_XUPE;
+    writeRegister8(LIS3DH_REG_INT1CFG, int1_cfg);
+
+    // Clear the interrupt just in case
+    readRegister8(LIS3DH_REG_INT1SRC);
+  }
+  else {
+    int1_cfg = 0;
+    writeRegister8(LIS3DH_REG_INT1CFG, 0);
+  }
+
+  return true;
+}
+
+/**************************************************************************/
+/*!
+    @brief  When using setupLowPowerWakeMode to sleep until moved, this clears
+    the interrupt on the WKP pin. Manual reset mode is used so you can tell the
+    difference between timeout and movement wakeup when using stop mode sleep.
+*/
+/**************************************************************************/
+
+uint8_t Adafruit_LIS3DH::clearInterrupt() {
+  uint8_t int1_src = readRegister8(LIS3DH_REG_INT1SRC);
+
+  if (intPin >= 0) {
+    while(digitalRead(intPin) == HIGH) {
+      delay(10);
+      readRegister8(LIS3DH_REG_INT1SRC);
+      writeRegister8(LIS3DH_REG_INT1CFG, int1_cfg);
+    }
+  }
+
+  return int1_src;
 }
 
 
@@ -378,21 +460,22 @@ uint8_t Adafruit_LIS3DH::spixfer(uint8_t x) {
 /**************************************************************************/
 void Adafruit_LIS3DH::writeRegister8(uint8_t reg, uint8_t value) {
   if (_cs == -1) {
-    I2Cinterface->beginTransmission((uint8_t)_i2caddr);
-    I2Cinterface->write((uint8_t)reg);
-    I2Cinterface->write((uint8_t)value);
-    I2Cinterface->endTransmission();
-  } 
+    Wire.beginTransmission((uint8_t)_i2caddr);
+    Wire.write((uint8_t)reg);
+    Wire.write((uint8_t)value);
+    Wire.endTransmission();
+  }
   #ifndef __AVR_ATtiny85__
   else {
-    if (_sck == -1)
-      SPI.beginTransaction(SPISettings(500000, MSBFIRST, SPI_MODE0));
+  if (_sck == -1)
+    beginTransaction();
+
     digitalWrite(_cs, LOW);
     spixfer(reg & ~0x80); // write, bit 7 low
     spixfer(value);
     digitalWrite(_cs, HIGH);
     if (_sck == -1)
-      SPI.endTransaction();              // release the SPI bus
+      endTransaction();
   }
   #endif
 }
@@ -406,24 +489,44 @@ uint8_t Adafruit_LIS3DH::readRegister8(uint8_t reg) {
   uint8_t value;
 
   if (_cs == -1) {
-    I2Cinterface->beginTransmission(_i2caddr);
-    I2Cinterface->write((uint8_t)reg);
-    I2Cinterface->endTransmission();
+    Wire.beginTransmission(_i2caddr);
+    Wire.write((uint8_t)reg);
+    Wire.endTransmission();
 
-    I2Cinterface->requestFrom(_i2caddr, 1);
-    value = I2Cinterface->read();
-  }  
+    Wire.requestFrom(_i2caddr, 1);
+    value = Wire.read();
+  }
   #ifndef __AVR_ATtiny85__
   else {
-    if (_sck == -1)
-      SPI.beginTransaction(SPISettings(500000, MSBFIRST, SPI_MODE0));
-    digitalWrite(_cs, LOW);
+  if (_sck == -1)
+    beginTransaction();
+
+  digitalWrite(_cs, LOW);
     spixfer(reg | 0x80); // read, bit 7 high
     value = spixfer(0);
     digitalWrite(_cs, HIGH);
     if (_sck == -1)
-      SPI.endTransaction();              // release the SPI bus
+      endTransaction();
   }
   #endif
   return value;
+}
+
+
+void Adafruit_LIS3DH::beginTransaction() {
+#ifdef PARTICLE
+    SPI.setBitOrder(MSBFIRST);
+    SPI.setClockSpeed(500000);
+    SPI.setDataMode(SPI_MODE0);
+#else
+  SPI.beginTransaction(SPISettings(500000, MSBFIRST, SPI_MODE0));
+#endif
+}
+
+void Adafruit_LIS3DH::endTransaction() {
+#ifdef PARTICLE
+
+#else
+  SPI.endTransaction();
+#endif
 }
